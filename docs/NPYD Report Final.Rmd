@@ -1,0 +1,203 @@
+---
+title: "NYPD Shooting Incident Report"
+author: 
+date: "2022-08-09"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+## Description of the Data
+The data used is titled NYPD Shooting Incident Data (Historic). As per the official government website: “This is a breakdown of every shooting incident that occurred in NYC going back to 2006 through the end of the previous calendar year. This data is manually extracted every quarter and reviewed by the Office of Management Analysis and Planning before being posted on the NYPD website. Each record represents a shooting incident in NYC and includes information about the event, the location and time of occurrence. In addition, information related to suspect and victim demographics is also included.” 
+
+## Importing the Data
+Go to the following website https://catalog.data.gov/dataset and enter “NYPD Shooting Incident Data (Historic)” in the search bar.Right-click on the csv button to copy the link address for the dataset.
+
+```{r download}
+## Download Data from website
+library(readr)
+data <- read_csv('https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD')
+
+```
+## Trim the Data
+I will only use the following columns for my analysis: INCIDENT_KEY, OCCUR_DATE, OCCUR_TIME, BORO, PRECINCT,STATISTICAL_MURDER_FLAG. 
+```{r clean}
+## access libraries
+library(dplyr)
+library(lubridate)
+library(tidyverse)
+## Make sure the column names match their descriptions
+INCIDENT_KEY <- colnames(data)[1]
+OCCUR_DATE <- colnames(data)[2] 
+OCCUR_TIME <- colnames(data)[3] 
+BORO <- colnames(data)[4]
+PRECINCT <- colnames(data)[5]
+STATISTICAL_MURDER_FLAG <- colnames(data)[8]
+# Only select necessary columns
+data_trimmed <- data[c(INCIDENT_KEY, OCCUR_DATE, OCCUR_TIME,BORO,PRECINCT, STATISTICAL_MURDER_FLAG)]
+
+
+```
+
+## Ensure the data is the type desired for analysis. 
+I changed the OCCUR_DATE to a date type variable (mdy) and modified OCCUR_TIME to become a time variable (hms) called OCCUR_TIME2.
+```{r clean_variables}
+# change the appropriate variables
+data_cleaned <- data_trimmed %>% mutate(OCCUR_DATE = mdy(OCCUR_DATE)) %>% mutate(OCCUR_TIME2 = hms(OCCUR_TIME))
+```
+## Create Additional Variables
+Create year and month variables.  Additionally, I created a new column titled "NIGHT" using the OCCUR_TIME variable. If the time in OCCUR_TIME is between 06:00:00 and 18:00:00 it is classified as "Day" and a 0 is recorded in the column. If it happened outside those hours the incident is classified as "Night" and a 1 is recorded in the column.
+```{r new_variables}
+#library
+library(lubridate)
+## Create Year Variable
+data_cleaned$YEAR <- year(data_cleaned$OCCUR_DATE)
+## Create Month Variable
+data_cleaned$MONTH_NUMERIC <- month(data_cleaned$OCCUR_DATE)
+data_cleaned$MONTH <- month(data_cleaned$OCCUR_DATE)
+data_cleaned$MONTH <- month.abb[as.numeric(data_cleaned$MONTH)]
+## Create Night Variable
+loop_index_1 <- 0
+for (i in data_cleaned$OCCUR_TIME2) {
+  loop_index_1 <- loop_index_1 + 1
+  if(data_cleaned$OCCUR_TIME[loop_index_1] >= hms("06:00:00")) {
+    if(data_cleaned$OCCUR_TIME[loop_index_1] <= hms("18:00:00")){
+      data_cleaned$NIGHT[loop_index_1] <- 0
+    } 
+    else {
+      data_cleaned$NIGHT[loop_index_1] <- 1
+    }
+  } 
+  else {
+    data_cleaned$NIGHT[loop_index_1] <- 1
+  }
+}
+```
+
+
+## Summary
+A summary of the data is displayed. There appears to be no missing data.
+```{r summary}
+summary(data_cleaned)
+```
+## Visualization 1: Number of Shooting Incidents by Year
+This chart has the year as the x-axis and the number of incidents as the y-axis. The number of incidents generally decreases until 2020 when there is a dramatic increase.
+```{r visualiztion 1}
+library(ggplot2)
+## Create Bar Chart of Incidents Per Year
+ggplot(data_cleaned) + geom_bar(aes(x = YEAR), fill = 'blue') + ggtitle("Number of Shooting Incidents by Year") + xlab("Year")
+
+```
+
+## Visualization 2: Seasonality of Shooting Incidents
+ 
+This chart has the month as the x-axis and the number of monthly incidents as the y-axis. Each year is displayed as a separate line. The summer months of June - August appear to have the greatest number of incidents, suggesting there might be seasonality to the data. 
+```{r visualization 2}
+## group data by Year and Month
+seasonal <- data_cleaned %>% group_by(YEAR, MONTH) %>% summarise(MONTHLY_INCIDENTS = n()) %>% ungroup()
+## create plot
+ggplot(seasonal, 
+            aes(x = MONTH, y = MONTHLY_INCIDENTS, group = YEAR, colour = YEAR)) + 
+  geom_line() + scale_x_discrete(limits = month.abb) + ggtitle("Seasonality of Shooting Incidents") + xlab("Month") +ylab("Shooting Incidents")
+```
+
+## Visualization 3: Histogram of Shooting Incidents by Time
+
+This chart is a historgram with the x-axis being the time the shooting incident occured and the number of incidents on the y-axis. From this histogram it appears the majority of the incidents occured during the evening and night with very few happening during the middle of the day.
+```{r time_histogram}
+# Create a histogram of the time the incidents occured
+ggplot(data_cleaned, aes(OCCUR_TIME)) + geom_histogram(fill = 'black') + ggtitle("Shooting Incidents by Time") + xlab("Time")
+```
+
+## Visualization 4: Day vs Night Shooting Incident Grouping
+
+This chart shows the shooting incidents broken down into two groups. The first group is "Day" designated by the 0. If the incident occured between the hours of 06:00:00 and 18:00:00 it is labeled "Day", otherwise it is labled "Night" designated by the 1. Each grouping is a 12 hour window. The number of incidents that happened during the night is much greater than the incidents during the day.
+```{r day_vs_night}
+# Create bar chart of day vs night groupings
+ggplot(data_cleaned) + geom_bar(aes(x = NIGHT), fill = 'purple') + ggtitle("Day vs Night Shooting Incidents") + xlab("Day = 0, Night = 1")
+```
+
+## Day vs Night Shooting Incident Analysis
+
+From the charts it appears most of the shooting incidents occur during the night time. To test this hypothesis, the day was broken into two 12-hour time periods. Day is designated as the hours between 06:00:00 and 18:00:00, and Night are the remaining 12 hours. The column Night has a 0 for Day and a 1 for Night. Given there are only two categories, a one proportion Z-test will be performed to determine if the number of incidents occuring during the night are significantly different than those occuring during the day, given a theoretical proportion of 50% Day and 50% Night. The null hypothesis is that the proportion of shooting incidents that occured during Night = 0.50 and the alternative hypothesis is the propotion of shooting incidents occuring during the Night > 0.50. 
+
+A right-tailed z-test will be performed.
+H0: p(Night) = 0.50
+Ha: p(Night) > 0.50
+
+The test statistic is calculated as:
+
+z = (p-p0) / √p0(1-p0)/n
+
+where:
+
+p: observed sample proportion
+p0: hypothesized population proportion (0.50)
+n: sample size
+
+The resulting p-value < 2.2e-16 and test shows that we can reject the null hypothesis and accept the alternative hypothesis that the number of shooting incidents at night is greater than 50% of the total incidents.
+```{r one_proportion_z_test}
+# One proportion Z-test
+prop.test(x = sum(data_cleaned$NIGHT == 1), n = sum(data_cleaned$NIGHT == 1) + sum(data_cleaned$NIGHT == 0), p = 0.5, correct = FALSE, alternative = "greater")
+```
+
+## Seasonality Model
+The data appears to have a seasonality component, particularly with the summer months. To test for the effect of individual months on shooting incidents, a dummy variable is created for each month except January. Additionally, a model is made to predict the next month's number of incidents. The model consists of a lagged variable of the previous year's average monthly incidents and the monthly dummy variables. 
+
+Yo = b0 + b1X1 + b2X2 + b3X3 + ... b11X11 + b12X12 + error
+
+Where:
+Y0 = monthly incidents
+b0 = intercept
+b1X1 = previous year's average monthly incidents
+b2X2 = February Dummy Variable
+b3X3 = March Dummy Variable
+...
+b12X12 = December Dummy Variable
+
+```{r seasonality_model}
+# Create seasonal2 which uses numeric months
+seasonal2 <- data_cleaned %>% group_by(YEAR, MONTH_NUMERIC) %>% summarise(MONTHLY_INCIDENTS = n()) %>% ungroup()
+
+# Group by Year to get yearly shooting incidents
+monthly_average <- data_cleaned %>% group_by(YEAR) %>% summarise(AVERAGE_MONTH_INCIDENTS = n()/12) %>% ungroup()
+#lag monthly averages
+monthly_average$LAGGED_AVERAGE_MONTH_INCIDENTS <- lag(monthly_average$AVERAGE_MONTH_INCIDENTS)
+
+# Join seasonal and yearly
+joined_seasonal = merge(x=seasonal2, y = monthly_average, by = "YEAR", all.x = TRUE)
+# Use factor() to create dummy variables for the months
+month_model = lm(MONTHLY_INCIDENTS ~ LAGGED_AVERAGE_MONTH_INCIDENTS + factor(MONTH_NUMERIC), data = joined_seasonal)
+summary(month_model)
+```
+
+The summary shows that in comparison to the baseline month of January, the months of May, June, July, August, and September are statistically significant at the 0.001 level, with October being statistically significant at the 0.01 level. The summer months of June, July, and August have the greatest coefficients, with July being the highest at 87. This means in the model the month of July has 87 more shooting incidents than January.The LAGGED_AVERAGE_MONTH_INCIDENTS is also statistically significant at the 0.001 level and the coefficient of 0.69741 means that the predicted month is 0.69741 of the average monthly incidents of the prior year. Finally, the model has a decent predictive power with an adjusted R-squared of 0.5737 and a statistically significant F-statistic.
+
+## Visualization 5: Seasonality Model Predictions
+The chart shows the model predicted monthly shooting incidents in red dots plotted with the actual monthly shooting incidents in blue dots. The y-axis is the monthly shooting incidents while the x-axis is the month in numeric form. The model is decently able to capture the seasonality of the shooting incidents with the summer months having the greatest number. There are a few blue data points well above the model's prediction, and this is due to the year 2020 having a very large increase over the prior year.
+```{r prediciton}
+#Remove the year 2006 as there is no prediction values for that year due to the lagged variable
+N <- 12
+
+prediction_table <- joined_seasonal[-(1:N), , drop = FALSE]
+# Add Prediction Column
+prediction_table$PREDICTION <- predict(month_model)
+
+## Plot
+prediction_table %>% ggplot() + geom_point(aes(x = MONTH_NUMERIC, y = MONTHLY_INCIDENTS), color = "blue") + geom_point(aes(x = MONTH_NUMERIC, y = PREDICTION), color = "red") + ggtitle("Seasonality Model Predictions") + xlab("Month Numeric") + ylab("Monthly Incidents")
+```
+
+## Conclusion
+Data was taken from the NYPD Shooting Incident Data (Historic) database. This study chose to focus on the time and seasonal effect of shooting incidents and only the relevant information from the database was used. When displayed based upon time of the day, the number of shooting incidents clearly increases with darkness as most of the incidents occur during the evening/night/early morning. To test this hypothesis a one-proportion z test was used. The shooting incidents were divided into two categories. Any incident that occured during 06:00:00 to 18:00:00 was labeled as "Day" and everything outside those hours was labeled as "Night". The results from the test showed that we can reject the null hypothesis and accept the alternative hypothesis that the majority of the shooting incidents occur during the Night. 
+A model was made to predict the number of shooting incidents in a month.The number of shooting incidents showed a clear seasonal component when looked at on a monthly basis. This was accounted for in the model by implementing dummy variables. The model used the average monthly number of shooting incidents from the prior year while controlling for monthly seasonality to make its predictions. The results showed in comparison to the baseline month of January, the months of May, June, July, August, September, and October had statistically significantly more shooting incidents. The summer months of June, July, and August had the most incidents. Controlling for this monthly seasonality allowed the model to have decent predictive power, except for the year 2020 in which the decades-long downward trend of shooting incidents ended with a dramatic increase in 2020. In summary, this shows the nighttime hours and summer months have the greatest number of shooting incidents. Utilizing this information may allow the NYPD to better tailor their police response and prevent shooting incidents in the future. 
+
+## Biases
+I did not choose the general topic or original dataset in this study. However, choosing to focus on the time and seasonality aspect shows my biases. I have a natural belief, one that in all likelihood society at large generally shares, that being out when it is dark and being out at late hours of the night is more dangerous than during the middle of the day. When a crime occurs during the day we often hear "can you believe it happened in broad daylight?" or some similar phrase. To mitigate this bias I specifically avoided making the "Night" window too narrow and cherry-picking the latest hours of the night. The "Night" window is the same number of hours as the "Day" window and covers the evening and morning when there is some light depending on the time of year. 
+The other large bias I have is that I live in New York City and we are working on a NYPD dataset. I have noticed the increase in crime over the last several years and how much less safe I feel on a daily basis. From my personal life, I strongly believe NYC has become a more dangerous place. To help avoid this bias, I chose to study seasonality and not specifically if crime had increased in the last several years. To avoid adding a bias on my views of the boroughs in NYC (Manhattan, Brooklyn, etc.) I did not use those in my analysis. I have also heard before that more crime is committed during summer months. It also makes sense on a basic level. Warmer weather makes it easier to be outside, out late a night, to gather with groups, etc. Harsh winters in NYC make many things in life harder, including crimes. To mitigate this bias, I made dummy variables for each month instead of just the summer period. This way, if months in the fall or winter had an affect it would show up in the data as well. 
